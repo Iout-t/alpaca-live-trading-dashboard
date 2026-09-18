@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alpaca Live Trading Control Center</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #101318; color: #f2f4f7; }
+    main { max-width: 980px; margin: auto; padding: 20px; }
+    h1 { margin-bottom: 4px; }
+    .warning { background: #4d241d; border: 1px solid #d66a50; padding: 12px; border-radius: 10px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px; margin-top: 16px; }
+    .card { background: #191e27; border: 1px solid #303846; border-radius: 12px; padding: 14px; }
+    label { display: block; margin-top: 10px; color: #b7c0cc; font-size: 13px; }
+    select,input,button { width: 100%; box-sizing: border-box; padding: 10px; margin-top: 5px; border-radius: 8px; border: 1px solid #3a4555; background: #0d1117; color: white; }
+    button { cursor: pointer; background: #2d6cdf; border: 0; font-weight: 700; }
+    button.danger { background: #a83434; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; background: #0b0e12; padding: 10px; border-radius: 8px; }
+    .muted { color: #aab3bf; font-size: 13px; }
+    .status { font-weight: 700; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Alpaca Live Trading Control Center</h1>
+  <p class="muted">Separate live repository. Use only after independent security and execution review.</p>
+  <div class="warning"><strong>LIVE-MONEY WARNING:</strong> This interface can submit real orders when live execution is explicitly enabled on the server. Keep <code>DRY_RUN=true</code> until fully tested. Never expose API credentials in this page.</div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>System status</h2>
+      <div id="status" class="status">Loading…</div>
+      <pre id="config"></pre>
+      <button class="danger" id="stop">Emergency stop instructions</button>
+    </section>
+    <section class="card">
+      <h2>Account</h2>
+      <button id="loadAccount">Load account</button>
+      <pre id="account"></pre>
+    </section>
+    <section class="card">
+      <h2>Quote</h2>
+      <label>Symbol</label>
+      <select id="symbol"><option>GOOGL</option><option>MSFT</option><option>META</option><option>BTC/USD</option><option>ETH/USD</option><option>SOL/USD</option></select>
+      <button id="loadQuote">Load latest quote</button>
+      <pre id="quote"></pre>
+    </section>
+    <section class="card">
+      <h2>Manual live order</h2>
+      <p class="muted">This form is blocked unless the server has explicitly enabled live execution, disabled dry-run, disabled the emergency stop, and the checkbox is confirmed.</p>
+      <label>Side</label>
+      <select id="side"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+      <label>Quantity</label>
+      <input id="qty" value="0.01" inputmode="decimal">
+      <label>Order type</label>
+      <select id="orderType"><option value="market">Market</option><option value="limit">Limit</option><option value="stop">Stop</option><option value="stop_limit">Stop limit</option></select>
+      <label>Time in force</label>
+      <select id="tif"><option value="day">Day</option><option value="gtc">GTC</option><option value="ioc">IOC</option></select>
+      <label><input type="checkbox" id="confirm" style="width:auto"> I understand this may submit a real-money order.</label>
+      <button id="submitOrder">Submit live order</button>
+      <pre id="orderResult"></pre>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+async function getJson(url, options) {
+  const r = await fetch(url, options);
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = text; }
+  if (!r.ok) throw new Error(typeof data === 'string' ? data : JSON.stringify(data));
+  return data;
+}
+async function loadConfig() {
+  try {
+    const c = await getJson('/api/config');
+    $('config').textContent = JSON.stringify(c, null, 2);
+    $('status').textContent = c.live_orders_enabled && !c.dry_run && !c.emergency_stop && !c.paper ? 'LIVE EXECUTION ENABLED' : 'Execution blocked by safety configuration';
+    $('status').style.color = c.live_orders_enabled && !c.dry_run && !c.emergency_stop && !c.paper ? '#ff8f8f' : '#8fe0a4';
+  } catch(e) { $('status').textContent = e.message; }
+}
+$('loadAccount').onclick = async () => { try { $('account').textContent = JSON.stringify(await getJson('/api/account'), null, 2); } catch(e) { $('account').textContent = e.message; } };
+$('loadQuote').onclick = async () => { try { $('quote').textContent = JSON.stringify(await getJson('/api/quote/' + encodeURIComponent($('symbol').value)), null, 2); } catch(e) { $('quote').textContent = e.message; } };
+$('stop').onclick = () => alert('Set EMERGENCY_STOP=true in Render environment variables, then redeploy/restart the service.');
+$('submitOrder').onclick = async () => {
+  if (!$('confirm').checked) { $('orderResult').textContent = 'Confirmation checkbox is required.'; return; }
+  const payload = { symbol: $('symbol').value, side: $('side').value, qty: $('qty').value, order_type: $('orderType').value, time_in_force: $('tif').value, confirm_live: true };
+  try { $('orderResult').textContent = JSON.stringify(await getJson('/api/orders', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)}), null, 2); }
+  catch(e) { $('orderResult').textContent = e.message; }
+};
+loadConfig();
+</script>
+</body>
+</html>
+
